@@ -12,7 +12,7 @@ from telegram.ext import (
 
 # --- Configuration ---
 TELEGRAM_BOT_TOKEN = "7996065957:AAHXcXq7nFYMEsZMd_m7hyddqnbQebsltjM"
-REMOVE_BG_API_KEY = "gvoeRyGciuGqfAY6i8Hm5SLc"
+REMOVE_BG_API_KEY = "usx2WwQXLipJ7NbY6yPgTzHd"
 REMOVE_BG_API_URL = "https://api.remove.bg/v1.0/removebg"
 
 # --- Constants ---
@@ -42,14 +42,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop(STATE_WAITING_FOR_IMAGE, None)
     await update.message.reply_text(
         f"How to use me:\n1. Tap '{BTN_REMOVE_BACKGROUND}'\n"
-        "2. Send your image\n3. Get background removed PNG\nPowered by remove.bg",
+        "2. Send your image (PNG, JPG, JPEG)\n3. Get background removed PNG\nPowered by remove.bg",
         reply_markup=get_main_keyboard()
     )
 
 async def handle_remove_bg_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data[STATE_WAITING_FOR_IMAGE] = True
     await update.message.reply_text(
-        "Okay, send me the image now.",
+        "Okay, send me the image now (PNG, JPG, JPEG).",
         reply_markup=get_main_keyboard()
     )
 
@@ -72,7 +72,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo_file = await context.bot.get_file(message.photo[-1].file_id)
         image_bytes = await photo_file.download_as_bytearray()
         image_io = io.BytesIO(image_bytes)
-        image_io.name = photo_file.file_path.split('/')[-1] if photo_file.file_path else "input.jpg"
+
+        # Detect extension
+        if photo_file.file_path.lower().endswith((".png", ".jpg", ".jpeg")):
+            ext = photo_file.file_path.split('.')[-1]
+        else:
+            ext = "jpg"  # default
+
+        image_io.name = f"input.{ext}"
 
         # Send to remove.bg
         headers = {'X-Api-Key': REMOVE_BG_API_KEY}
@@ -80,11 +87,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         files = {'image_file': image_io}
 
         response = requests.post(REMOVE_BG_API_URL, headers=headers, files=files, data=data, timeout=45)
-        response.raise_for_status()
 
-        if 'image/png' not in response.headers.get('Content-Type', '').lower():
+        if response.status_code != 200 or 'image' not in response.headers.get('Content-Type', '').lower():
+            # Show API error to user
             error_text = response.content.decode('utf-8', errors='ignore')
-            await typing_msg.edit_text(f"Error from remove.bg:\n{error_text[:500]}")
+            await typing_msg.edit_text(f"remove.bg API Error ({response.status_code}):\n{error_text[:500]}")
             return
 
         processed_bytes = response.content
